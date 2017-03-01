@@ -10,6 +10,7 @@ import com.google.protobuf.wrappers.Int32Value
 import im.actor.server.db.DbExtension
 import im.actor.server.migrations.v2.{ MigrationNameList, MigrationTsActions }
 import im.actor.server.model._
+import im.actor.server.persist.push.FirebasePushCredentialsKV
 import im.actor.server.sequence.operations.{ DeliveryOperations, DifferenceOperations, PushOperations }
 import im.actor.storage.SimpleStorage
 import im.actor.storage.api.{ GetAction, UpsertAction }
@@ -57,11 +58,15 @@ final class SeqUpdatesExtension(_system: ActorSystem)
   lazy val region: SeqUpdatesManagerRegion = SeqUpdatesManagerRegion.start()(system)
   private val writer = system.actorOf(BatchUpdatesWriter.props, "batch-updates-writer")
   private val mediator = DistributedPubSub(system).mediator
+  protected lazy val firebaseKv = new FirebasePushCredentialsKV
 
   val MultiSequenceMigrationTs: Long = {
     val optTs = MigrationTsActions.getTimestamp(MigrationNameList.MultiSequence)(conn)
     optTs.getOrElse(throw new RuntimeException(s"No Migration timestamp found for ${MigrationNameList.MultiSequence}"))
   }
+
+  def msgDeliveryId(peer: Peer, randomId: Long) =
+    s"msg_${peer.`type`.value}_${peer.id}_${randomId}"
 
   def getSeqState(userId: Int, authId: Long): Future[SeqState] =
     (region.ref ? Envelope(userId).withGetSeqState(GetSeqState(authId))).mapTo[SeqState]

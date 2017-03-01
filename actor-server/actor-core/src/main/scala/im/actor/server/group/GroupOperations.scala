@@ -5,7 +5,7 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.google.protobuf.ByteString
 import im.actor.api.rpc.AuthorizedClientData
-import im.actor.api.rpc.groups.{ ApiGroup, ApiGroupFull, ApiMember }
+import im.actor.api.rpc.groups.{ ApiAdminSettings, ApiGroup, ApiGroupFull, ApiMember }
 import im.actor.server.dialog.UserAcl
 import im.actor.server.file.Avatar
 import im.actor.server.sequence.{ SeqState, SeqStateDate }
@@ -46,8 +46,7 @@ private[group] sealed trait Commands extends UserAcl {
   def joinGroup(groupId: Int, joiningUserId: Int, joiningUserAuthId: Long, invitingUserId: Option[Int]): Future[(SeqStateDate, Vector[Int], Long)] =
     (processorRegion.ref ?
       GroupEnvelope(groupId)
-      .withJoin(Join(joiningUserId, joiningUserAuthId, invitingUserId = None)) //None?
-      ).mapTo[(SeqStateDate, Vector[Int], Long)]
+      .withJoin(Join(joiningUserId, joiningUserAuthId, invitingUserId = invitingUserId))).mapTo[(SeqStateDate, Vector[Int], Long)]
 
   def inviteToGroup(groupId: Int, inviteeUserId: Int, randomId: Long)(implicit client: AuthorizedClientData): Future[SeqStateDate] =
     inviteToGroup(client.userId, client.authId, groupId, inviteeUserId, randomId)
@@ -88,10 +87,20 @@ private[group] sealed trait Commands extends UserAcl {
       GroupEnvelope(groupId)
       .withUpdateAbout(UpdateAbout(clientUserId, clientAuthId, about, randomId))).mapTo[SeqStateDate]
 
+  def updateShortName(groupId: Int, clientUserId: Int, clientAuthId: Long, shortName: Option[String]): Future[SeqState] =
+    (processorRegion.ref ?
+      GroupEnvelope(groupId)
+      .withUpdateShortName(UpdateShortName(clientUserId, clientAuthId, shortName))).mapTo[SeqState]
+
   def makeUserAdmin(groupId: Int, clientUserId: Int, clientAuthId: Long, candidateId: Int): Future[(Vector[ApiMember], SeqStateDate)] =
     (processorRegion.ref ?
       GroupEnvelope(groupId)
       .withMakeUserAdmin(MakeUserAdmin(clientUserId, clientAuthId, candidateId))).mapTo[(Vector[ApiMember], SeqStateDate)]
+
+  def dismissUserAdmin(groupId: Int, clientUserId: Int, clientAuthId: Long, targetUserId: Int): Future[SeqState] =
+    (processorRegion.ref ?
+      GroupEnvelope(groupId)
+      .withDismissUserAdmin(DismissUserAdmin(clientUserId, clientAuthId, targetUserId))).mapTo[SeqState]
 
   def revokeIntegrationToken(groupId: Int, clientUserId: Int): Future[String] =
     (processorRegion.ref ?
@@ -102,6 +111,31 @@ private[group] sealed trait Commands extends UserAcl {
     (processorRegion.ref ?
       GroupEnvelope(groupId)
       .withTransferOwnership(TransferOwnership(clientUserId, clientAuthId, newOwnerId))).mapTo[SeqState]
+
+  def updateAdminSettings(groupId: Int, clientUserId: Int, settings: ApiAdminSettings): Future[Unit] =
+    (processorRegion.ref ?
+      GroupEnvelope(groupId)
+      .withUpdateAdminSettings(UpdateAdminSettings(clientUserId, AdminSettings.apiToBitMask(settings)))).mapTo[UpdateAdminSettingsAck] map (_ ⇒ ())
+
+  def makeHistoryShared(groupId: Int, clientUserId: Int, clientAuthId: Long): Future[SeqState] =
+    (processorRegion.ref ?
+      GroupEnvelope(groupId)
+      .withMakeHistoryShared(MakeHistoryShared(clientUserId, clientAuthId))).mapTo[SeqState]
+
+  def deleteGroup(groupId: Int, clientUserId: Int, clientAuthId: Long): Future[SeqState] =
+    (processorRegion.ref ?
+      GroupEnvelope(groupId)
+      .withDeleteGroup(DeleteGroup(clientUserId, clientAuthId))).mapTo[SeqState]
+
+  def addExt(groupId: Int, ext: GroupExt): Future[Unit] =
+    (processorRegion.ref ?
+      GroupEnvelope(groupId)
+      .withAddExt(AddExt(Some(ext)))).mapTo[AddExtAck] map (_ ⇒ ())
+
+  def removeExt(groupId: Int, key: String): Future[Unit] =
+    (processorRegion.ref ?
+      GroupEnvelope(groupId)
+      .withRemoveExt(RemoveExt(key))).mapTo[RemoveExtAck] map (_ ⇒ ())
 
 }
 
@@ -124,20 +158,20 @@ private[group] sealed trait Queries {
       GroupEnvelope(groupId)
       .withGetIntegrationToken(GetIntegrationToken(clientUserId = None))).mapTo[GetIntegrationTokenResponse] map (_.token)
 
-  def getApiStruct(groupId: Int, clientUserId: Int): Future[ApiGroup] =
+  def getApiStruct(groupId: Int, clientUserId: Int, loadGroupMembers: Boolean = true): Future[ApiGroup] =
     (viewRegion.ref ?
       GroupEnvelope(groupId)
-      .withGetApiStruct(GetApiStruct(clientUserId))).mapTo[GetApiStructResponse] map (_.struct)
+      .withGetApiStruct(GetApiStruct(clientUserId, loadGroupMembers))).mapTo[GetApiStructResponse] map (_.struct)
 
   def getApiFullStruct(groupId: Int, clientUserId: Int): Future[ApiGroupFull] =
     (viewRegion.ref ?
       GroupEnvelope(groupId)
       .withGetApiFullStruct(GetApiFullStruct(clientUserId))).mapTo[GetApiFullStructResponse] map (_.struct)
 
-  def isPublic(groupId: Int): Future[Boolean] =
+  def isChannel(groupId: Int): Future[Boolean] =
     (viewRegion.ref ?
       GroupEnvelope(groupId)
-      .withIsPublic(IsPublic())).mapTo[IsPublicResponse] map (_.isPublic)
+      .withIsChannel(IsChannel())).mapTo[IsChannelResponse] map (_.isChannel)
 
   def isHistoryShared(groupId: Int): Future[Boolean] =
     (viewRegion.ref ?
@@ -149,12 +183,25 @@ private[group] sealed trait Queries {
       GroupEnvelope(groupId)
       .withCheckAccessHash(CheckAccessHash(hash))).mapTo[CheckAccessHashResponse] map (_.isCorrect)
 
+  // TODO: should be signed as internal API, and become narrowly scoped
+  // never use it in for client queries
   //(memberIds, invitedUserIds, botId)
-  def getMemberIds(groupId: Int): Future[(Seq[Int], Seq[Int], Option[Int])] =
+  def getMemberIds(groupId: Int): Future[(Seq[Int], Seq[Int], Option[Int])] = //TODO: prepare for channel
     (viewRegion.ref ?
       GroupEnvelope(groupId)
       .withGetMembers(GetMembers())).mapTo[GetMembersResponse] map (r ⇒ (r.memberIds, r.invitedUserIds, r.botId))
 
+  // TODO: should be signed as internal API
+  // TODO: better name maybe
+  def canSendMessage(groupId: Int, clientUserId: Int): Future[CanSendMessageInfo] =
+    (viewRegion.ref ?
+      GroupEnvelope(groupId)
+      .withCanSendMessage(CanSendMessage(clientUserId))).mapTo[CanSendMessageResponse] map {
+        case CanSendMessageResponse(canSend, isChannel, memberIds, botId) ⇒
+          CanSendMessageInfo(canSend, isChannel, memberIds.toSet, botId)
+      }
+
+  //TODO: move to separate Query.
   def isMember(groupId: Int, userId: Int): Future[Boolean] =
     getMemberIds(groupId) map (_._1.contains(userId))
 
@@ -171,5 +218,25 @@ private[group] sealed trait Queries {
   def loadMembers(groupId: Int, clientUserId: Int, limit: Int, offset: Option[Array[Byte]]) =
     (viewRegion.ref ?
       GroupEnvelope(groupId)
-      .withLoadMembers(LoadMembers(clientUserId, limit, offset map ByteString.copyFrom))).mapTo[LoadMembersResponse] map (r ⇒ r.userIds → r.offset.map(_.toByteArray))
+      .withLoadMembers(LoadMembers(clientUserId, limit, offset map ByteString.copyFrom))).mapTo[LoadMembersResponse] map { resp ⇒
+        (
+          resp.members map { m ⇒
+            ApiMember(m.userId, m.inviterUserId, m.invitedAt, isAdmin = Some(m.isAdmin))
+          },
+          resp.offset.map(_.toByteArray)
+        )
+      }
+
+  def loadAdminSettings(groupId: Int, clientUserId: Int): Future[ApiAdminSettings] = {
+    (viewRegion.ref ?
+      GroupEnvelope(groupId)
+      .withLoadAdminSettings(LoadAdminSettings(clientUserId))).mapTo[LoadAdminSettingsResponse] map (_.settings)
+  }
 }
+
+final case class CanSendMessageInfo(
+  canSend:   Boolean,
+  isChannel: Boolean,
+  memberIds: Set[Int],
+  botId:     Option[Int]
+)

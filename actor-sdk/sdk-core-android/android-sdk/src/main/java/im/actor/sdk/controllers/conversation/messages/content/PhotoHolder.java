@@ -29,6 +29,7 @@ import java.io.File;
 
 import im.actor.core.entity.FileReference;
 import im.actor.core.entity.Message;
+import im.actor.core.entity.Peer;
 import im.actor.core.entity.content.AnimationContent;
 import im.actor.core.entity.content.DocumentContent;
 import im.actor.core.entity.content.FileLocalSource;
@@ -101,9 +102,9 @@ public class PhotoHolder extends MessageHolder {
     private final ControllerListener animationController;
     private Animatable anim;
 
-    public PhotoHolder(MessagesAdapter fragment, View itemView) {
-        super(fragment, itemView, false);
-        this.context = fragment.getMessagesFragment().getActivity();
+    public PhotoHolder(MessagesAdapter adapter, View itemView, Peer peer) {
+        super(adapter, itemView, false);
+        this.context = adapter.getMessagesFragment().getActivity();
 
         COLOR_PENDING = ActorSDK.sharedActor().style.getConvMediaStatePendingColor();
         COLOR_SENT = ActorSDK.sharedActor().style.getConvMediaStateSentColor();
@@ -287,7 +288,16 @@ public class PhotoHolder extends MessageHolder {
             progressIcon.setVisibility(View.GONE);
 
             if (fileMessage.getSource() instanceof FileRemoteSource) {
-                boolean autoDownload = (fileMessage instanceof PhotoContent) || (fileMessage instanceof AnimationContent);
+
+                boolean autoDownload = false;
+                if (fileMessage instanceof PhotoContent) {
+                    autoDownload = messenger().isImageAutoDownloadEnabled();
+                } else if (fileMessage instanceof AnimationContent) {
+                    autoDownload = messenger().isAnimationAutoPlayEnabled();
+                } else if (fileMessage instanceof VideoContent) {
+                    autoDownload = messenger().isVideoAutoDownloadEnabled();
+                }
+
                 if (!updated) {
                     previewView.setImageURI(null);
                 }

@@ -1,6 +1,7 @@
 package im.actor.sdk.controllers.conversation;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
@@ -10,6 +11,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import im.actor.core.entity.GroupType;
 import im.actor.core.entity.Peer;
 import im.actor.core.entity.PeerType;
 import im.actor.core.entity.Sticker;
@@ -20,6 +22,7 @@ import im.actor.core.viewmodel.UserVM;
 import im.actor.runtime.mvvm.Value;
 import im.actor.runtime.mvvm.ValueChangedListener;
 import im.actor.runtime.mvvm.ValueDoubleChangedListener;
+import im.actor.runtime.mvvm.ValueListener;
 import im.actor.sdk.ActorSDK;
 import im.actor.sdk.ActorSDKLauncher;
 import im.actor.sdk.R;
@@ -95,13 +98,30 @@ public class ChatFragment extends BaseFragment implements InputBarCallback, Mess
             if (toolbarFragment == null) {
                 toolbarFragment = new ChatToolbarFragment(peer);
             }
+            InputBarFragment inputBarFragment = ActorSDK.sharedActor().getDelegate().fragmentForChatInput();
+            if (inputBarFragment == null) {
+                inputBarFragment = new InputBarFragment();
+            }
+
+            AutocompleteFragment autocompleteFragment = ActorSDK.sharedActor().getDelegate().fragmentForAutocomplete(peer);
+            if (autocompleteFragment == null) {
+                autocompleteFragment = AutocompleteFragment.create(peer);
+                autocompleteFragment.setUnderlyingView(res.findViewById(R.id.messagesFragment));
+            }
+
+            QuoteFragment quoteFragment = ActorSDK.sharedActor().getDelegate().fragmentForQuote();
+            if (quoteFragment == null) {
+                quoteFragment = new QuoteFragment();
+            }
+            MessagesDefaultFragment messagesDefaultFragment = MessagesDefaultFragment.create(peer);
+            messagesDefaultFragment.setNewMessageListener(inputBarFragment);
             getChildFragmentManager().beginTransaction()
                     .add(toolbarFragment, "toolbar")
-                    .add(R.id.messagesFragment, MessagesDefaultFragment.create(peer))
-                    .add(R.id.sendFragment, new InputBarFragment())
-                    .add(R.id.quoteFragment, new QuoteFragment())
+                    .add(R.id.messagesFragment, messagesDefaultFragment)
+                    .add(R.id.sendFragment, inputBarFragment)
+                    .add(R.id.quoteFragment, quoteFragment)
                     .add(R.id.emptyPlaceholder, new EmptyChatPlaceholder())
-                    .add(R.id.autocompleteContainer, new AutocompleteFragment(peer))
+                    .add(R.id.autocompleteContainer, autocompleteFragment)
                     .commitNow();
 
             AbsAttachFragment fragment = ActorSDK.sharedActor().getDelegate().fragmentForAttachMenu(peer);
@@ -167,15 +187,40 @@ public class ChatFragment extends BaseFragment implements InputBarCallback, Mess
             }
         } else if (peer.getPeerType() == PeerType.GROUP) {
             GroupVM groupVM = groups().get(peer.getPeerId());
-
-            bind(groupVM.isMember(), (val, valueModel) -> {
-                if (val) {
+            bind(groupVM.isMember(), groupVM.getIsCanWriteMessage(), (isMember, valueModel, canWriteMessage, valueModel2) -> {
+                if (canWriteMessage) {
                     goneView(inputOverlayContainer, false);
                     showView(inputContainer, false);
+                } else if (isMember) {
+                    if (messenger().isNotificationsEnabled(peer)) {
+                        inputOverlayText.setText(getString(R.string.chat_mute));
+                    } else {
+                        inputOverlayText.setText(getString(R.string.chat_unmute));
+                    }
+                    inputOverlayText.setTextColor(style.getListActionColor());
+                    inputOverlayText.setClickable(true);
+                    inputOverlayText.setEnabled(true);
+                    showView(inputOverlayContainer, false);
+                    goneView(inputContainer, false);
+                } else if (groupVM.getIsCanJoin().get()) {
+                    inputOverlayText.setText(getString(R.string.join));
+                    inputOverlayText.setTextColor(style.getListActionColor());
+                    inputOverlayText.setClickable(true);
+                    inputOverlayText.setEnabled(true);
+                    showView(inputOverlayContainer, false);
+                    goneView(inputContainer, false);
+                } else if (groupVM.getIsDeleted().get()) {
+                    inputOverlayText.setText(groupVM.getGroupType() == GroupType.CHANNEL ? R.string.channel_deleted : R.string.group_deleted);
+                    inputOverlayText.setTextColor(style.getListActionColor());
+                    inputOverlayText.setClickable(false);
+                    inputOverlayText.setEnabled(false);
+                    showView(inputOverlayContainer, false);
+                    goneView(inputContainer, false);
                 } else {
                     inputOverlayText.setText(R.string.chat_not_member);
                     inputOverlayText.setTextColor(style.getListActionColor());
                     inputOverlayText.setClickable(false);
+                    inputOverlayText.setEnabled(false);
                     showView(inputOverlayContainer, false);
                     goneView(inputContainer, false);
                 }
@@ -193,6 +238,21 @@ public class ChatFragment extends BaseFragment implements InputBarCallback, Mess
                     execute(messenger().unblockUser(userVM.getId()));
                 }
             }
+        } else if (peer.getPeerType() == PeerType.GROUP) {
+            GroupVM groupVM = groups().get(peer.getPeerId());
+            if (groupVM.isMember().get()) {
+                if (messenger().isNotificationsEnabled(peer)) {
+                    messenger().changeNotificationsEnabled(peer, false);
+                    inputOverlayText.setText(getString(R.string.chat_unmute));
+                } else {
+                    messenger().changeNotificationsEnabled(peer, true);
+                    inputOverlayText.setText(getString(R.string.chat_mute));
+                }
+            } else if (groupVM.getIsCanJoin().get()) {
+                messenger().joinGroup(groupVM.getId());
+            } else {
+                // TODO: Rejoin
+            }
         }
     }
 
@@ -204,6 +264,10 @@ public class ChatFragment extends BaseFragment implements InputBarCallback, Mess
             if (attachFragment.onBackPressed()) {
                 return true;
             }
+        }
+
+        if (findInputBar().onBackPressed()) {
+            return true;
         }
 
         // Message Edit
@@ -294,7 +358,7 @@ public class ChatFragment extends BaseFragment implements InputBarCallback, Mess
 
         AbsAttachFragment attachFragment = findShareFragment();
         if (attachFragment != null) {
-            quoteContainer.post(() -> attachFragment.show());
+            quoteContainer.postDelayed(() -> attachFragment.show(), 200);
         }
     }
 

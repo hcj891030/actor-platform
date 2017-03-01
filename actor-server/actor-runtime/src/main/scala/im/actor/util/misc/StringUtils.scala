@@ -14,6 +14,8 @@ object StringUtils {
 
   private val usernamePattern = Pattern.compile("""^[0-9a-zA-Z_]{5,32}""", Pattern.UNICODE_CHARACTER_CLASS)
 
+  private val sha256Pattern = Pattern.compile("^[A-Fa-f0-9]{64}$", Pattern.UNICODE_CHARACTER_CLASS)
+
   private val transliterator = Transliterator.getInstance("Latin; Latin-ASCII")
 
   def utfToHexString(s: String): String = { s.map(ch ⇒ f"${ch.toInt}%04X").mkString }
@@ -26,18 +28,20 @@ object StringUtils {
 
   def nonEmptyString(s: String): NonEmptyList[String] Xor String = {
     val trimmed = s.trim
-    if (trimmed.isEmpty) NonEmptyList("Should be nonempty").left else trimmed.right
+    if (trimmed.isEmpty) NonEmptyList.of("Should be nonempty").left else trimmed.right
   }
 
   def printableString(s: String): NonEmptyList[String] Xor String = {
     val p = Pattern.compile("\\p{Print}+", Pattern.UNICODE_CHARACTER_CLASS)
-    if (p.matcher(s).matches) s.right else NonEmptyList("Should contain printable characters only").left
+    if (p.matcher(s).matches) s.right else NonEmptyList.of("Should contain printable characters only").left
   }
 
   def validName(n: String): NonEmptyList[String] Xor String =
     nonEmptyString(n).flatMap(printableString)
 
-  def validUsername(username: String): Boolean = usernamePattern.matcher(username.trim).matches
+  def validGlobalName(username: String): Boolean = usernamePattern.matcher(username.trim).matches
+
+  def validGroupInviteToken(token: String): Boolean = sha256Pattern.matcher(token.trim).matches
 
   def normalizeUsername(username: String): Option[String] = {
     val trimmed = username.trim

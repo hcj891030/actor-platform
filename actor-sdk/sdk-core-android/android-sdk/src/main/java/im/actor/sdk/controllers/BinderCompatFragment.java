@@ -8,6 +8,8 @@ import im.actor.core.viewmodel.GroupVM;
 import im.actor.core.viewmodel.UserVM;
 import im.actor.runtime.mvvm.Value;
 import im.actor.runtime.mvvm.ValueDoubleChangedListener;
+import im.actor.runtime.mvvm.ValueDoubleListener;
+import im.actor.runtime.mvvm.ValueListener;
 import im.actor.sdk.view.avatar.AvatarView;
 import im.actor.sdk.view.avatar.CoverAvatarView;
 import im.actor.runtime.mvvm.ValueChangedListener;
@@ -35,12 +37,20 @@ public class BinderCompatFragment extends android.support.v4.app.Fragment {
         BINDER.bind(value, listener);
     }
 
+    public <T> void bind(ValueModel<T> value, ValueListener<T> listener) {
+        BINDER.bind(value, listener);
+    }
+
+    public <T1, T2> void bind(Value<T1> value1, Value<T2> value2, ValueDoubleListener<T1, T2> listener) {
+        BINDER.bind(value1, value2, listener);
+    }
+
     public <T> void bind(ValueModel<T> value, boolean notify, ValueChangedListener<T> listener) {
         BINDER.bind(value, listener, notify);
     }
 
-    public <T1, T2> void bind(ValueModel<T1> value1, ValueModel<T2> value2, ValueDoubleChangedListener<T1, T2> listener) {
-        BINDER.bind(value1, value2, listener);
+    public <T1, T2> ActorBinder.Binding[] bind(ValueModel<T1> value1, ValueModel<T2> value2, ValueDoubleChangedListener<T1, T2> listener) {
+        return BINDER.bind(value1, value2, listener);
     }
 
     public void bind(final CoverAvatarView avatarView, final ValueModel<Avatar> avatar) {
@@ -94,6 +104,10 @@ public class BinderCompatFragment extends android.support.v4.app.Fragment {
         if (!unbindOnPause) {
             BINDER.unbindAll();
         }
+    }
+
+    protected ActorBinder getBINDER() {
+        return BINDER;
     }
 
     public void unbind(ActorBinder.Binding b) {

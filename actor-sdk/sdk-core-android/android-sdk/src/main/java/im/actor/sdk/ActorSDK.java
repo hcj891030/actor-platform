@@ -8,18 +8,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.ViewGroup;
 
 import com.facebook.drawee.backends.pipeline.Fresco;
 import com.facebook.imagepipeline.core.ImagePipelineConfig;
 
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Locale;
 import java.util.TimeZone;
 
 import im.actor.core.AndroidMessenger;
 import im.actor.core.ApiConfiguration;
+import im.actor.core.AutoJoinType;
 import im.actor.core.ConfigurationBuilder;
 import im.actor.core.DeviceCategory;
 import im.actor.core.PlatformType;
@@ -27,13 +28,10 @@ import im.actor.core.entity.Peer;
 import im.actor.runtime.Log;
 import im.actor.runtime.Runtime;
 import im.actor.runtime.actors.ActorSystem;
-import im.actor.runtime.android.view.BindedViewHolder;
 import im.actor.runtime.threading.ThreadDispatcher;
 import im.actor.sdk.controllers.Intents;
 import im.actor.sdk.controllers.root.RootActivity;
 import im.actor.sdk.controllers.conversation.ChatActivity;
-import im.actor.sdk.controllers.conversation.messages.content.MessageHolder;
-import im.actor.sdk.controllers.conversation.messages.MessagesAdapter;
 import im.actor.sdk.controllers.auth.AuthActivity;
 import im.actor.sdk.controllers.group.GroupInfoActivity;
 import im.actor.sdk.controllers.settings.MyProfileActivity;
@@ -133,6 +131,11 @@ public class ActorSDK {
      */
     private String inviteUrl = "https://actor.im/dl";
     /**
+     * Invite url
+     */
+    @Nullable
+    private String groupInvitePrefix = "actor.im/join/";
+    /**
      * Help phone
      */
     private String helpPhone = "75551234567";
@@ -164,11 +167,21 @@ public class ActorSDK {
      */
     private boolean fastShareEnabled = false;
 
+    /**
+     * Auto Join Groups
+     */
+    private String[] autoJoinGroups = new String[0];
+    private AutoJoinType autoJoinType = AutoJoinType.AFTER_INIT;
 
     /**
      * Auth type - binary mask for auth type
      */
     private int authType = AuthActivity.AUTH_TYPE_PHONE + AuthActivity.AUTH_TYPE_EMAIL;
+
+    /**
+     * Alternate endpoints - allow choose alternate endpoint on auth - disabled be default
+     */
+    private boolean useAlternateEndpoints = false;
 
     /**
      * Delegate
@@ -182,14 +195,15 @@ public class ActorSDK {
     private boolean callsEnabled = false;
     private boolean videoCallsEnabled = false;
 
+    private boolean onClientPrivacyEnabled = false;
+
+    private String inviteDataUrl = "https://api.actor.im/v1/groups/invites/";
+
     private ActorSDK() {
         endpoints = new String[]{
-                "tls://front1-mtproto-api-rev2.actor.im@104.155.30.208",
-                "tls://front2-mtproto-api-rev2.actor.im@104.155.30.208",
-
-                "tcp://front1-mtproto-api-rev3.actor.im@104.155.30.208:443",
-                "tcp://front2-mtproto-api-rev3.actor.im@104.155.30.208:443",
-                "tcp://front3-mtproto-api-rev3.actor.im@104.155.30.208:443"
+                "tcp://front1-mtproto-api-rev3.actor.im:443",
+                "tcp://front2-mtproto-api-rev3.actor.im:443",
+                "tcp://front3-mtproto-api-rev3.actor.im:443"
         };
         trustedKeys = new String[]{
                 "d9d34ed487bd5b434eda2ef2c283db587c3ae7fb88405c3834d9d1a6d247145b",
@@ -246,6 +260,7 @@ public class ActorSDK {
             }
             builder.setPhoneBookProvider(new AndroidPhoneBook());
             builder.setVideoCallsEnabled(videoCallsEnabled);
+            builder.setOnClientPrivacyEnabled(onClientPrivacyEnabled);
             builder.setNotificationProvider(new AndroidNotifications(application));
             builder.setDeviceCategory(DeviceCategory.MOBILE);
             builder.setPlatformType(PlatformType.ANDROID);
@@ -284,6 +299,19 @@ public class ActorSDK {
             // Calls Support
             //
             builder.setCallsProvider(new AndroidCallProvider());
+
+            //
+            // Handle raw updates
+            //
+            builder.setRawUpdatesHandler(getDelegate().getRawUpdatesHandler());
+
+            //
+            // Auto Join
+            //
+            for (String s : autoJoinGroups) {
+                builder.addAutoJoinGroup(s);
+            }
+            builder.setAutoJoinType(autoJoinType);
 
             //
             // Building Messenger
@@ -520,6 +548,25 @@ public class ActorSDK {
     }
 
     /**
+     * Getting Group Invite Prefix
+     *
+     * @return group invite prefix
+     */
+    @Nullable
+    public String getGroupInvitePrefix() {
+        return groupInvitePrefix;
+    }
+
+    /**
+     * Setting Group Invite Prefix
+     *
+     * @param groupInvitePrefix group invite prefix
+     */
+    public void setGroupInvitePrefix(@Nullable String groupInvitePrefix) {
+        this.groupInvitePrefix = groupInvitePrefix;
+    }
+
+    /**
      * Getting Push Registration Id
      *
      * @return pushId
@@ -632,6 +679,24 @@ public class ActorSDK {
      */
     public void setCallsEnabled(boolean callsEnabled) {
         this.callsEnabled = callsEnabled;
+    }
+
+    /**
+     * Alternate endpoints - allow choose alternate endpoint on auth - disabled be default
+     *
+     * @return is isUseAlternateEndpointsEnabled enabled
+     */
+    public boolean isUseAlternateEndpointsEnabled() {
+        return useAlternateEndpoints;
+    }
+
+    /**
+     * Is alternate endpoints choose enabled
+     *
+     * @param useAlternateEndpoints is setUseAlternateEndpoints enabled
+     */
+    public void setUseAlternateEndpoints(boolean useAlternateEndpoints) {
+        this.useAlternateEndpoints = useAlternateEndpoints;
     }
 
     /**
@@ -762,6 +827,43 @@ public class ActorSDK {
         this.privacyText = privacyText;
     }
 
+
+    /**
+     * Get Current Auto Join group tokens
+     *
+     * @return auto join tokens
+     */
+    public String[] getAutoJoinGroups() {
+        return autoJoinGroups;
+    }
+
+    /**
+     * Set Auto Join group tokens
+     *
+     * @param autoJoinGroups auto join tokens
+     */
+    public void setAutoJoinGroups(String[] autoJoinGroups) {
+        this.autoJoinGroups = autoJoinGroups;
+    }
+
+    /**
+     * Set auto join type
+     *
+     * @return auto join type
+     */
+    public AutoJoinType getAutoJoinType() {
+        return autoJoinType;
+    }
+
+    /**
+     * Set auto join type
+     *
+     * @param autoJoinType auto join type
+     */
+    public void setAutoJoinType(AutoJoinType autoJoinType) {
+        this.autoJoinType = autoJoinType;
+    }
+
     /**
      * Setting Application Delegate. Useful for hacking various parts of SDK
      *
@@ -865,9 +967,7 @@ public class ActorSDK {
     public void startGroupInfoActivity(Context context, int gid) {
         Bundle b = new Bundle();
         b.putInt(Intents.EXTRA_GROUP_ID, gid);
-        if (!startDelegateActivity(context, delegate.getGroupInfoIntent(gid), b)) {
-            startActivity(context, b, GroupInfoActivity.class);
-        }
+        startActivity(context, b, GroupInfoActivity.class);
     }
 
     /**
@@ -946,29 +1046,6 @@ public class ActorSDK {
 
     }
 
-    /**
-     * Method is used internally for getting delegated list ViewHolder for default messages types
-     */
-    public <T extends BindedViewHolder> T getDelegatedViewHolder(Class<T> base, OnDelegateViewHolder<T> callback, Object... args) {
-        T delegated = delegate.getViewHolder(base, args);
-        if (delegated != null) {
-            return delegated;
-        } else {
-            return callback.onNotDelegated();
-        }
-    }
-
-    /**
-     * Method is used internally for getting delegated list ViewHolder for custom messages types
-     */
-    public MessageHolder getDelegatedCustomMessageViewHolder(int dataTypeHash, OnDelegateViewHolder<MessageHolder> callback, MessagesAdapter messagesAdapter, ViewGroup viewGroup) {
-        MessageHolder delegated = delegate.getCustomMessageViewHolder(dataTypeHash, messagesAdapter, viewGroup);
-        if (delegated != null) {
-            return delegated;
-        } else {
-            return callback.onNotDelegated();
-        }
-    }
 
     public boolean isVideoCallsEnabled() {
         return videoCallsEnabled;
@@ -978,11 +1055,32 @@ public class ActorSDK {
         this.videoCallsEnabled = videoCallsEnabled;
     }
 
-    /**
-     * Used for handling delegated ViewHolders
-     */
-    public interface OnDelegateViewHolder<T> {
-        T onNotDelegated();
+    public void setOnClientPrivacyEnabled(boolean onClientPrivacyEnabled) {
+        this.onClientPrivacyEnabled = onClientPrivacyEnabled;
+    }
 
+    public boolean isOnClientPrivacyEnabled() {
+        return onClientPrivacyEnabled;
+    }
+
+    public String getInviteDataUrl() {
+        return inviteDataUrl;
+    }
+
+    public void setInviteDataUrl(String inviteDataUrl) {
+        this.inviteDataUrl = inviteDataUrl;
+    }
+
+
+    public static void returnToRoot(Context context) {
+        Intent i;
+        ActorIntent startIntent = ActorSDK.sharedActor().getDelegate().getStartIntent();
+        if (startIntent != null && startIntent instanceof ActorIntentActivity) {
+            i = ((ActorIntentActivity) startIntent).getIntent();
+        } else {
+            i = new Intent(context, RootActivity.class);
+        }
+        i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        context.startActivity(i);
     }
 }

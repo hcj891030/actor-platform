@@ -1,11 +1,9 @@
 package im.actor.server.dialog
 
 import akka.actor.ActorSystem
-import akka.http.scaladsl.util.FastFuture
 import im.actor.api.rpc.PeersImplicits
 import im.actor.api.rpc.counters.{ ApiAppCounters, UpdateCountersChanged }
 import im.actor.api.rpc.messaging._
-import im.actor.server.db.DbExtension
 import im.actor.server.messaging.PushText
 import im.actor.server.model.Peer
 import im.actor.server.sequence.{ PushData, PushRules, SeqState, SeqUpdatesExtension }
@@ -14,8 +12,8 @@ import im.actor.server.user.UserExtension
 import scala.concurrent.{ ExecutionContext, Future }
 
 //default extension
-final class ActorDelivery()(implicit val system: ActorSystem)
-  extends DeliveryExtension
+final class ActorDelivery(val system: ActorSystem)
+  extends DeliveryExtension(system, Array.emptyByteArray)
   with PushText
   with PeersImplicits {
 
@@ -42,6 +40,11 @@ final class ActorDelivery()(implicit val system: ActorSystem)
       quotedMessage = None
     )
 
+    val isMentioned = message match {
+      case ApiTextMessage(_, mentions, _) ⇒ mentions.contains(receiverUserId)
+      case _                              ⇒ false
+    }
+
     for {
       senderName ← UserExtension(system).getName(senderUserId, receiverUserId)
       (pushText, censoredPushText) ← getPushText(peer, receiverUserId, senderName, message)
@@ -53,8 +56,9 @@ final class ActorDelivery()(implicit val system: ActorSystem)
             .withText(pushText)
             .withCensoredText(censoredPushText)
             .withPeer(peer)
+            .withIsMentioned(isMentioned)
         ),
-        deliveryId = deliveryId(peer, randomId),
+        deliveryId = seqUpdExt.msgDeliveryId(peer, randomId),
         deliveryTag = deliveryTag
       )
     } yield ()
@@ -100,7 +104,7 @@ final class ActorDelivery()(implicit val system: ActorSystem)
       default = Some(senderUpdate),
       custom = senderAuthId map (authId ⇒ Map(authId → senderClientUpdate)) getOrElse Map.empty,
       pushRules = PushRules(isFat = isFat, excludeAuthIds = senderAuthId.toSeq),
-      deliveryId = deliveryId(peer, randomId),
+      deliveryId = seqUpdExt.msgDeliveryId(peer, randomId),
       deliveryTag = deliveryTag
     )
   }
@@ -133,9 +137,6 @@ final class ActorDelivery()(implicit val system: ActorSystem)
         reduceKey = Some(reduceKey("read_by_me", peer))
       )
     } yield ()
-
-  private def deliveryId(peer: Peer, randomId: Long) =
-    s"msg_${peer.`type`.value}_${peer.id}_${randomId}"
 
   private def reduceKey(prefix: String, peer: Peer): String =
     s"${prefix}_${peer.`type`.value}_${peer.id}"

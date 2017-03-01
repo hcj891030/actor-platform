@@ -233,7 +233,7 @@ public class BindedDisplayList<T extends BserObject & ListEngineItem> extends Di
     public void initCenter(long centerSortKey, boolean refresh) {
         // im.actor.runtime.Runtime.checkMainThread();
 
-        if (mode != null && mode == ListMode.CENTER) {
+        if (!refresh && mode != null && mode == ListMode.CENTER) {
             return;
         }
         mode = ListMode.CENTER;
@@ -353,6 +353,9 @@ public class BindedDisplayList<T extends BserObject & ListEngineItem> extends Di
 
                 if (items.size() == 0) {
                     window.onForwardCompleted();
+                    if (bindHook != null) {
+                        bindHook.onScrolledToEnd();
+                    }
                     // Log.d(TAG, "isLoadMoreForwardRequested = false: sync");
                     isLoadMoreForwardRequested = false;
                 } else {

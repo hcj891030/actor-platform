@@ -93,11 +93,7 @@ object GroupRepo {
     )
   }
 
-  //???
-  def findPublic =
-    groups.filter(_.isPublic === true).map(_.asGroup).result
-
-  @deprecated("Replace with some sort of key-value maybe?", "2016-06-05")
+  // TODO: Replace with key value
   def findAllIds = allIds.result
 
   @deprecated("Remove, only used in tests", "2016-06-05")
@@ -121,9 +117,6 @@ object GroupRepo {
   @deprecated("Duplication of event-sourced groups logic", "2016-06-05")
   def updateAbout(id: Int, about: Option[String]) =
     byIdC.applied(id).map(_.about).update(about)
-
-  //???
-  def makePublic(id: Int) = byIdC.applied(id).map(_.isPublic).update(true)
 
   @deprecated("Migrations only", "2016-06-05")
   def makeHidden(id: Int) = byIdC.applied(id).map(_.isHidden).update(true)

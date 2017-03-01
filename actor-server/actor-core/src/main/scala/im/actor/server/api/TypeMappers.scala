@@ -9,7 +9,7 @@ import com.google.protobuf.wrappers.{ BytesValue, Int64Value }
 import com.google.protobuf.{ ByteString, CodedInputStream }
 import com.trueaccord.scalapb.TypeMapper
 import im.actor.api.rpc.files.ApiAvatar
-import im.actor.api.rpc.groups.{ ApiGroup, ApiGroupFull }
+import im.actor.api.rpc.groups.{ ApiAdminSettings, ApiGroup, ApiGroupFull }
 import im.actor.api.rpc.messaging.ApiMessage
 import im.actor.api.rpc.misc.ApiExtension
 import im.actor.api.rpc.peers.ApiPeer
@@ -17,6 +17,7 @@ import im.actor.api.rpc.sequence.SeqUpdate
 import im.actor.api.rpc.users.ApiSex.ApiSex
 import im.actor.api.rpc.users.{ ApiFullUser, ApiUser, ApiSex ⇒ S }
 import im.actor.serialization.ActorSerializer
+import im.actor.server.group.GroupExt
 import org.joda.time.DateTime
 
 abstract class ActorSystemMapper[BaseType, CustomType](implicit val system: ActorSystem) extends TypeMapper[BaseType, CustomType]
@@ -184,6 +185,29 @@ private[api] trait MessageMapper {
   def unapplyExtension(ext: ApiExtension): ByteString =
     ByteString.copyFrom(ext.toByteArray)
 
+  def applyGroupExt(bytes: ByteString): GroupExt = {
+    if (bytes.size > 0) {
+      GroupExt.parseFrom(CodedInputStream.newInstance(bytes.asReadOnlyByteBuffer()))
+    } else {
+      null
+    }
+  }
+
+  def unapplyGroupExt(ext: GroupExt): ByteString =
+    ByteString.copyFrom(ext.toByteArray)
+
+  private def applyAdminSettings(bytes: ByteString): ApiAdminSettings = {
+    if (bytes.size() > 0) {
+      val res = ApiAdminSettings.parseFrom(CodedInputStream.newInstance(bytes.toByteArray))
+      get(res)
+    } else {
+      null
+    }
+  }
+
+  private def unapplyAdminSettings(settings: ApiAdminSettings): ByteString =
+    ByteString.copyFrom(settings.toByteArray)
+
   implicit val seqUpdMapper: TypeMapper[ByteString, SeqUpdate] = TypeMapper(applySeqUpdate)(unapplySeqUpdate)
 
   implicit val anyRefMapper: TypeMapper[ByteString, AnyRef] = TypeMapper(applyAnyRef)(unapplyAnyRef)
@@ -215,6 +239,10 @@ private[api] trait MessageMapper {
   implicit val sexMapper: TypeMapper[Int, ApiSex] = TypeMapper(applySex)(unapplySex)
 
   implicit val extensionMapper: TypeMapper[ByteString, ApiExtension] = TypeMapper(applyExtension)(unapplyExtension)
+
+  implicit val groupExtMapper: TypeMapper[ByteString, GroupExt] = TypeMapper(applyGroupExt)(unapplyGroupExt)
+
+  implicit val adminSettingsMapper: TypeMapper[ByteString, ApiAdminSettings] = TypeMapper(applyAdminSettings)(unapplyAdminSettings)
 
   implicit def actorRefMapper(implicit system: ActorSystem): TypeMapper[String, ActorRef] =
     new ActorSystemMapper[String, ActorRef]() {

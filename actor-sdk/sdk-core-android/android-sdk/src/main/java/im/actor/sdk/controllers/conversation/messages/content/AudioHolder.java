@@ -17,6 +17,7 @@ import android.widget.Toast;
 import com.droidkit.progress.CircularView;
 
 import im.actor.core.entity.Message;
+import im.actor.core.entity.Peer;
 import im.actor.core.entity.content.DocumentContent;
 import im.actor.core.entity.content.FileLocalSource;
 import im.actor.core.entity.content.FileRemoteSource;
@@ -37,6 +38,7 @@ import im.actor.sdk.controllers.conversation.messages.content.preprocessor.Prepr
 import im.actor.sdk.core.audio.AudioPlayerActor;
 import im.actor.sdk.view.TintImageView;
 
+import static im.actor.sdk.util.ActorSDKMessenger.messenger;
 import static im.actor.sdk.util.ActorSDKMessenger.myUid;
 import static im.actor.sdk.util.ViewUtils.goneView;
 import static im.actor.sdk.util.ViewUtils.showView;
@@ -70,9 +72,9 @@ public class AudioHolder extends MessageHolder {
     protected boolean treckingTouch;
     protected Handler mainThread;
 
-    public AudioHolder(MessagesAdapter fragment, final View itemView) {
-        super(fragment, itemView, false);
-        context = fragment.getMessagesFragment().getContext();
+    public AudioHolder(MessagesAdapter adapter, final View itemView, Peer peer) {
+        super(adapter, itemView, false);
+        context = adapter.getMessagesFragment().getContext();
         mainThread = new Handler(context.getMainLooper());
         waitColor = ActorSDK.sharedActor().style.getConvStatePendingColor();
         sentColor = ActorSDK.sharedActor().style.getConvStateSentColor();
@@ -293,7 +295,10 @@ public class AudioHolder extends MessageHolder {
             // Resetting progress state
 
             if (audioMsg.getSource() instanceof FileRemoteSource) {
-                boolean autoDownload = audioMsg instanceof VoiceContent;
+                boolean autoDownload = false;
+                if (audioMsg instanceof VoiceContent) {
+                    autoDownload = messenger().isAudioAutoDownloadEnabled();
+                }
                 downloadFileVM = ActorSDK.sharedActor().getMessenger().bindFile(((FileRemoteSource) audioMsg.getSource()).getFileReference(),
                         autoDownload, new DownloadVMCallback(audioMsg));
             } else if (audioMsg.getSource() instanceof FileLocalSource) {

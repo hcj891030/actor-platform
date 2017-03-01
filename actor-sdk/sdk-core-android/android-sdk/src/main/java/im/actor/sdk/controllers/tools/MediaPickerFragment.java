@@ -18,6 +18,8 @@ import android.support.v4.app.Fragment;
 import android.support.v4.content.ContextCompat;
 import android.widget.Toast;
 
+import com.soundcloud.android.crop.Crop;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,11 +40,17 @@ public class MediaPickerFragment extends BaseFragment {
     private static final int REQUEST_LOCATION = 4;
     private static final int REQUEST_CONTACT = 5;
     private static final int PERMISSIONS_REQUEST_CAMERA = 6;
+    private static final int PERMISSIONS_REQUEST_CONTACTS = 7;
 
     private String pendingFile;
-
+    private boolean pickCropped;
 
     public void requestPhoto() {
+        requestPhoto(false);
+    }
+
+    public void requestPhoto(boolean pickCropped) {
+        this.pickCropped = pickCropped;
 
         //
         // Checking permissions
@@ -80,6 +88,7 @@ public class MediaPickerFragment extends BaseFragment {
     }
 
     public void requestVideo() {
+        this.pickCropped = false;
 
         //
         // Generating Temporary File Name
@@ -99,22 +108,50 @@ public class MediaPickerFragment extends BaseFragment {
     }
 
     public void requestGallery() {
+        requestGallery(false);
+    }
+
+    public void requestGallery(boolean pickCropped) {
+        this.pickCropped = pickCropped;
+
         Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
         intent.setType("image/* video/*");
         startActivityForResult(intent, REQUEST_GALLERY);
     }
 
     public void requestFile() {
+        this.pickCropped = false;
+
         Activity activity = getActivity();
         startActivityForResult(new Intent(activity, FilePickerActivity.class), REQUEST_DOC);
     }
 
     public void requestLocation() {
+        this.pickCropped = false;
+
         Intent intent = new Intent("im.actor.pickLocation_" + AndroidContext.getContext().getPackageName());
         startActivityForResult(intent, REQUEST_LOCATION);
     }
 
     public void requestContact() {
+        this.pickCropped = false;
+
+        //
+        // Checking permissions
+        //
+        Activity activity = getActivity();
+        if (activity != null) {
+            if (Build.VERSION.SDK_INT >= 23) {
+                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},
+                            PERMISSIONS_REQUEST_CONTACTS);
+                    return;
+                }
+            }
+        } else {
+            return;
+        }
+
         Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI);
         startActivityForResult(intent, REQUEST_CONTACT);
     }
@@ -125,17 +162,37 @@ public class MediaPickerFragment extends BaseFragment {
         if (resultCode == Activity.RESULT_OK) {
             if (requestCode == REQUEST_GALLERY) {
                 if (data.getData() != null) {
-                    getCallback().onUriPicked(data.getData());
+                    if (pickCropped) {
+                        pendingFile = generateRandomFile(".jpg");
+                        Crop.of(data.getData(), Uri.fromFile(new File(pendingFile)))
+                                .asSquare()
+                                .start(getContext(), this);
+                    } else {
+                        getCallback().onUriPicked(data.getData());
+                    }
                 }
             } else if (requestCode == REQUEST_PHOTO) {
                 if (pendingFile != null) {
-                    getCallback().onPhotoPicked(pendingFile);
+
+                    String sourceFileName = pendingFile;
                     Context context = getContext();
                     if (context != null) {
                         MediaScannerConnection.scanFile(context, new String[]{pendingFile},
                                 new String[]{"image/jpeg"}, null);
                     }
-                    pendingFile = null;
+
+                    if (pickCropped) {
+                        pendingFile = generateRandomFile(".jpg");
+                        Crop.of(Uri.fromFile(new File(sourceFileName)), Uri.fromFile(new File(pendingFile)))
+                                .asSquare()
+                                .start(getContext(), this);
+                    } else {
+                        getCallback().onPhotoPicked(sourceFileName);
+                    }
+                }
+            } else if (requestCode == Crop.REQUEST_CROP) {
+                if (pendingFile != null) {
+                    getCallback().onPhotoCropped(pendingFile);
                 }
             } else if (requestCode == REQUEST_VIDEO) {
                 if (pendingFile != null) {
@@ -227,8 +284,6 @@ public class MediaPickerFragment extends BaseFragment {
                 getCallback().onLocationPicked(data.getDoubleExtra("longitude", 0), data.getDoubleExtra("latitude", 0), data.getStringExtra("street"), data.getStringExtra("place"));
             }
         }
-
-
     }
 
     @Override
@@ -239,6 +294,12 @@ public class MediaPickerFragment extends BaseFragment {
                 requestPhoto();
             }
         }
+
+        if (requestCode == PERMISSIONS_REQUEST_CONTACTS) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                requestContact();
+            }
+        }
     }
 
     @Override
@@ -246,6 +307,7 @@ public class MediaPickerFragment extends BaseFragment {
         super.onCreate(saveInstance);
         if (saveInstance != null) {
             pendingFile = saveInstance.getString("pendingFile", null);
+            pickCropped = saveInstance.getBoolean("pickCropped");
         }
     }
 
@@ -255,6 +317,7 @@ public class MediaPickerFragment extends BaseFragment {
         if (pendingFile != null) {
             outState.putString("pendingFile", pendingFile);
         }
+        outState.putBoolean("pickCropped", pickCropped);
     }
 
     private String generateRandomFile(String ext) {
@@ -311,6 +374,13 @@ public class MediaPickerFragment extends BaseFragment {
         public void onVideoPicked(String path) {
             if (callback != null) {
                 callback.onVideoPicked(path);
+            }
+        }
+
+        @Override
+        public void onPhotoCropped(String path) {
+            if (callback != null) {
+                callback.onPhotoCropped(path);
             }
         }
 

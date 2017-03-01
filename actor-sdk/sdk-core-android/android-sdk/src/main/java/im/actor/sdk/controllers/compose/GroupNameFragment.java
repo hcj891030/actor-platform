@@ -3,7 +3,6 @@ package im.actor.sdk.controllers.compose;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -18,16 +17,18 @@ import im.actor.sdk.ActorSDK;
 import im.actor.sdk.R;
 import im.actor.sdk.controllers.Intents;
 import im.actor.sdk.controllers.BaseFragment;
+import im.actor.sdk.controllers.group.GroupTypeFragment;
 import im.actor.sdk.util.Screen;
 import im.actor.sdk.view.avatar.AvatarView;
 import im.actor.sdk.util.KeyboardHelper;
 
-/**
- * Created by ex3ndr on 04.10.14.
- */
+import static im.actor.sdk.util.ActorSDKMessenger.messenger;
+
 public class GroupNameFragment extends BaseFragment {
 
     private static final int REQUEST_AVATAR = 1;
+
+    private boolean isChannel;
 
     private EditText groupName;
     private AvatarView avatarView;
@@ -38,8 +39,26 @@ public class GroupNameFragment extends BaseFragment {
 
     public GroupNameFragment() {
         setRootFragment(true);
-        setTitle(R.string.create_group_title);
         setHomeAsUp(true);
+    }
+
+    public GroupNameFragment(boolean isChannel) {
+        this();
+        Bundle args = new Bundle();
+        args.putBoolean("isChannel", isChannel);
+        setArguments(args);
+    }
+
+    @Override
+    public void onCreate(Bundle saveInstance) {
+        super.onCreate(saveInstance);
+        this.isChannel = getArguments().getBoolean("isChannel");
+
+        if (isChannel) {
+            setTitle(R.string.create_channel_title);
+        } else {
+            setTitle(R.string.create_group_title);
+        }
     }
 
     @Override
@@ -48,18 +67,28 @@ public class GroupNameFragment extends BaseFragment {
 
         View res = inflater.inflate(R.layout.fragment_create_group_name, container, false);
         res.setBackgroundColor(ActorSDK.sharedActor().style.getMainBackgroundColor());
-        ((TextView) res.findViewById(R.id.create_group_hint)).setTextColor(ActorSDK.sharedActor().style.getTextSecondaryColor());
+
+        TextView hintTextView = (TextView) res.findViewById(R.id.create_group_hint);
+        hintTextView.setTextColor(ActorSDK.sharedActor().style.getTextSecondaryColor());
+        if (isChannel) {
+            hintTextView.setText(R.string.create_channel_hint);
+        } else {
+            hintTextView.setText(R.string.create_group_hint);
+        }
+
         groupName = (EditText) res.findViewById(R.id.groupTitle);
-        groupName.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                if (actionId == EditorInfo.IME_ACTION_NEXT) {
-                    next();
-                    return true;
-                }
-                return false;
+        groupName.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_NEXT) {
+                next();
+                return true;
             }
+            return false;
         });
+        if (isChannel) {
+            groupName.setHint(R.string.create_channel_name_hint);
+        } else {
+            groupName.setHint(R.string.create_group_name_hint);
+        }
         groupName.setTextColor(ActorSDK.sharedActor().style.getTextPrimaryColor());
         groupName.setHintTextColor(ActorSDK.sharedActor().style.getTextHintColor());
 
@@ -69,11 +98,8 @@ public class GroupNameFragment extends BaseFragment {
         // avatarView.getHierarchy().setControllerOverlay(getResources().getDrawable(R.drawable.circle_selector));
         avatarView.setImageURI(null);
 
-        res.findViewById(R.id.pickAvatar).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                startActivityForResult(Intents.pickAvatar(avatarPath != null, getActivity()), REQUEST_AVATAR);
-            }
+        res.findViewById(R.id.pickAvatar).setOnClickListener(view -> {
+            startActivityForResult(Intents.pickAvatar(avatarPath != null, getActivity()), REQUEST_AVATAR);
         });
 
         return res;
@@ -104,8 +130,15 @@ public class GroupNameFragment extends BaseFragment {
     private void next() {
         String title = groupName.getText().toString().trim();
         if (title.length() > 0) {
-            ((CreateGroupActivity) getActivity()).showNextFragment(
-                    GroupUsersFragment.create(groupName.getText().toString().trim(), avatarPath), false, true);
+            if (isChannel) {
+                execute(messenger().createChannel(groupName.getText().toString().trim(), avatarPath).then(gid -> {
+                    ((CreateGroupActivity) getActivity()).showNextFragment(
+                            GroupTypeFragment.create(gid, true), false);
+                }));
+            } else {
+                ((CreateGroupActivity) getActivity()).showNextFragment(
+                        GroupUsersFragment.createGroup(groupName.getText().toString().trim(), avatarPath), false);
+            }
         }
     }
 

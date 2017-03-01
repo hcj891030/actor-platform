@@ -14,6 +14,8 @@ import im.actor.core.entity.GroupMember;
 import im.actor.core.viewmodel.GroupVM;
 import im.actor.core.viewmodel.UserPresence;
 import im.actor.core.viewmodel.UserVM;
+import im.actor.runtime.mvvm.ValueDoubleListener;
+import im.actor.runtime.mvvm.ValueListener;
 import im.actor.runtime.mvvm.ValueModel;
 import im.actor.sdk.ActorSDK;
 import im.actor.sdk.R;
@@ -167,7 +169,6 @@ public class ActorBinder {
 
     public Binding bind(final OnChangedListener<Boolean> callback, ValueModel<UserPresence> up) {
         return bind(up, new ValueChangedListener<UserPresence>() {
-
             @Override
             public void onChanged(UserPresence val, Value<UserPresence> valueModel) {
                 callback.onChanged(val.getState().equals(UserPresence.State.ONLINE));
@@ -176,29 +177,25 @@ public class ActorBinder {
     }
 
     public void bind(final TextView textView, final View titleContainer, final GroupVM value) {
-        bind(value.getPresence(), value.getMembers(), value.isMember(), new ValueTripleChangedListener<Integer, HashSet<GroupMember>, Boolean>() {
-            @Override
-            public void onChanged(Integer online, Value<Integer> onlineModel,
-                                  HashSet<GroupMember> members, Value<HashSet<GroupMember>> membersModel, Boolean isMember, Value<Boolean> isMemberModel) {
-                if (isMember) {
-                    titleContainer.setVisibility(View.VISIBLE);
-                    if (online <= 0) {
-                        SpannableStringBuilder builder = new SpannableStringBuilder(
-                                messenger().getFormatter().formatGroupMembers(members.size()));
-                        builder.setSpan(new ForegroundColorSpan(0xB7ffffff), 0, builder.length(),
-                                Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
-                        textView.setText(builder);
-                    } else {
-                        SpannableStringBuilder builder = new SpannableStringBuilder(
-                                messenger().getFormatter().formatGroupMembers(members.size()) + ", ");
-                        builder.setSpan(new ForegroundColorSpan(0xB7ffffff), 0, builder.length(),
-                                Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
-                        builder.append(messenger().getFormatter().formatGroupOnline(online));
-                        textView.setText(builder);
-                    }
+        bind(value.getPresence(), value.getMembersCount(), value.isMember(), (online, onlineModel, membersCount, membersModel, isMember, isMemberModel) -> {
+            if (isMember) {
+                titleContainer.setVisibility(View.VISIBLE);
+                if (online <= 0) {
+                    SpannableStringBuilder builder = new SpannableStringBuilder(
+                            messenger().getFormatter().formatGroupMembers(membersCount));
+                    builder.setSpan(new ForegroundColorSpan(0xB7ffffff), 0, builder.length(),
+                            Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
+                    textView.setText(builder);
                 } else {
-                    titleContainer.setVisibility(View.GONE);
+                    SpannableStringBuilder builder = new SpannableStringBuilder(
+                            messenger().getFormatter().formatGroupMembers(membersCount) + ", ");
+                    builder.setSpan(new ForegroundColorSpan(0xB7ffffff), 0, builder.length(),
+                            Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
+                    builder.append(messenger().getFormatter().formatGroupOnline(online));
+                    textView.setText(builder);
                 }
+            } else {
+                titleContainer.setVisibility(View.GONE);
             }
         });
     }
@@ -234,6 +231,18 @@ public class ActorBinder {
         return b;
     }
 
+    public <T> Binding bind(Value<T> value, ValueListener<T> listener) {
+        return bind(value, (val, valueModel) -> {
+            listener.onChanged(val);
+        });
+    }
+
+    public <T1, T2> void bind(Value<T1> value1, Value<T2> value2, ValueDoubleListener<T1, T2> listener) {
+        bind(value1, value2, (val, valueModel, val2, valueModel2) -> {
+            listener.onChanged(val, val2);
+        });
+    }
+
     public <T> Binding bind(Value<T> value, ValueChangedListener<T> listener, boolean notify) {
         value.subscribe(listener, notify);
         Binding b = new Binding(value, listener);
@@ -241,27 +250,31 @@ public class ActorBinder {
         return b;
     }
 
-    public <T> void bind(Value<T> value, boolean notify, ValueChangedListener<T> listener) {
+    public <T> Binding bind(Value<T> value, boolean notify, ValueChangedListener<T> listener) {
         value.subscribe(listener, notify);
-        bindings.add(new Binding(value, listener));
+        Binding binding = new Binding(value, listener);
+        bindings.add(binding);
+        return binding;
     }
 
-    public <T, V> void bind(final Value<T> value1, final Value<V> value2,
+    public <T, V> Binding[] bind(final Value<T> value1, final Value<V> value2,
                             final ValueDoubleChangedListener<T, V> listener) {
 
-        bind(value1, false, new ValueChangedListener<T>() {
+        Binding[] bindings = new Binding[2];
+        bindings[0] = bind(value1, false, new ValueChangedListener<T>() {
             @Override
             public void onChanged(T val, Value<T> Value) {
                 listener.onChanged(val, Value, value2.get(), value2);
             }
         });
-        bind(value2, false, new ValueChangedListener<V>() {
+        bindings[1] = bind(value2, false, new ValueChangedListener<V>() {
             @Override
             public void onChanged(V val, Value<V> Value) {
                 listener.onChanged(value1.get(), value1, val, Value);
             }
         });
         listener.onChanged(value1.get(), value1, value2.get(), value2);
+        return bindings;
     }
 
     public <T, V, S> void bind(final Value<T> value1, final Value<V> value2, final Value<S> value3,

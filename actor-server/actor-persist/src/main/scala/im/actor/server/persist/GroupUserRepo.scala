@@ -52,17 +52,13 @@ object GroupUserRepo {
   def find(groupId: Int) =
     byGroupIdC(groupId).result
 
-  @deprecated("Compatibility with old group API, remove when possible", "2016-06-05")
-  def find(groupId: Int, userId: Int) =
-    byPKC((groupId, userId)).result.headOption
-
-  //TODO: remove
-  def exists(groupId: Int, userId: Int) =
-    byPKC.applied((groupId, userId)).exists.result
-
   //TODO: revisit later
   def findUserIds(groupId: Int) =
     userIdByGroupIdC(groupId).result
+
+  @deprecated("Compatibility with old group API, remove when possible", "2016-06-05")
+  def find(groupId: Int, userId: Int) =
+    byPKC((groupId, userId)).result.headOption
 
   @deprecated("Duplication of event-sourced groups logic", "2016-06-05")
   def delete(groupId: Int, userId: Int): FixedSqlAction[Int, NoStream, Write] =
@@ -71,5 +67,9 @@ object GroupUserRepo {
   @deprecated("Duplication of event-sourced groups logic", "2016-06-05")
   def makeAdmin(groupId: Int, userId: Int) =
     byPKC.applied((groupId, userId)).map(_.isAdmin).update(true)
+
+  @deprecated("Duplication of event-sourced groups logic", "2016-06-05")
+  def dismissAdmin(groupId: Int, userId: Int) =
+    byPKC.applied((groupId, userId)).map(_.isAdmin).update(false)
 
 }

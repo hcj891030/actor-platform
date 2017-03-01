@@ -2,8 +2,6 @@ package im.actor.sdk;
 
 import android.graphics.Color;
 
-import im.actor.sdk.util.Screen;
-
 /**
  * Actor Styling class
  */
@@ -24,6 +22,23 @@ public class ActorStyle {
         if (defaultBackgrouds.length > 0) {
             this.defaultBackgrouds = defaultBackgrouds;
         }
+    }
+
+    private int[] defaultAvatarPlaceholders = new int[]{
+            0xff509dbb,
+            0xff52b3cd,
+            0xff7e6eeb,
+            0xffde5447,
+            0xffee7e37,
+            0xffed608b,
+            0xff6ac53c};
+
+    public int[] getDefaultAvatarPlaceholders() {
+        return defaultAvatarPlaceholders;
+    }
+
+    public void setDefaultAvatarPlaceholders(int[] defaultAvatarPlaceholders) {
+        this.defaultAvatarPlaceholders = defaultAvatarPlaceholders;
     }
 
     //////////////////////////
@@ -358,6 +373,16 @@ public class ActorStyle {
         this.dialogsTitleColor = dialogsTitleColor;
     }
 
+    private int dialogsTitleSecureColor = 0xff559d44;
+
+    public int getDialogsTitleSecureColor() {
+        return getColorWithFallback(dialogsTitleSecureColor, getDialogsTitleColor());
+    }
+
+    public void setDialogsTitleSecureColor(int dialogsTitleSecureColor) {
+        this.dialogsTitleSecureColor = dialogsTitleSecureColor;
+    }
+
     private int dialogsTextColor = 0;
 
     public int getDialogsTextColor() {
@@ -498,6 +523,16 @@ public class ActorStyle {
 
     public void setTextSubheaderInvColor(int textSubheaderInvColor) {
         this.textSubheaderInvColor = textSubheaderInvColor;
+    }
+
+    private int textDangerColor = 0xffe44b4b;
+
+    public int getTextDangerColor() {
+        return textDangerColor;
+    }
+
+    public void setTextDangerColor(int textDangerColor) {
+        this.textDangerColor = textDangerColor;
     }
 
     //Settings
@@ -887,6 +922,10 @@ public class ActorStyle {
         return Color.argb(Color.alpha(color), (int) Math.round(Color.red(color) * percent), (int) Math.round(Color.green(color) * percent), (int) Math.round(Color.blue(color) * percent));
     }
 
+    public static int adjustColorAlpha(int color, int alpha) {
+        return (alpha << 24) | (color & 0x00ffffff);
+    }
+
     /**
      * Get color with fallback to default - if color is 0, returns fallback color
      *
@@ -907,14 +946,14 @@ public class ActorStyle {
     //////////////////////////
 
     // DialogsFragment layout settings
-    private int dialogsPaddingTop = Screen.dp(8);
+    private int dialogsPaddingTopDp = 8;
 
-    public int getDialogsPaddingTop() {
-        return dialogsPaddingTop;
+    public int getDialogsPaddingTopDp() {
+        return dialogsPaddingTopDp;
     }
 
-    public void setDialogsPaddingTop(int dialogsPaddingTop) {
-        this.dialogsPaddingTop = dialogsPaddingTop;
+    public void setDialogsPaddingTopDp(int dialogsPaddingTopDp) {
+        this.dialogsPaddingTopDp = dialogsPaddingTopDp;
     }
 
     // ContactsFragment layout settings

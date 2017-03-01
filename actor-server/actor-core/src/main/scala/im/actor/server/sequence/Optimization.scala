@@ -3,6 +3,7 @@ package im.actor.server.sequence
 import com.google.protobuf.ByteString
 import im.actor.api.rpc.counters.UpdateCountersChanged
 import im.actor.api.rpc.groups._
+import im.actor.api.rpc.messaging.UpdateChatDropCache
 import im.actor.api.rpc.sequence.{ ApiUpdateOptimization, UpdateEmptyUpdate }
 import im.actor.server.messaging.MessageParsing
 import im.actor.server.model.SerializedUpdate
@@ -36,15 +37,16 @@ object Optimization extends MessageParsing {
 
         UpdateGroupOwnerChanged.header,
         UpdateGroupHistoryShared.header,
-        UpdateGroupCanSendMessagesChanged.header,
-        UpdateGroupCanViewMembersChanged.header,
-        UpdateGroupCanInviteMembersChanged.header,
         UpdateGroupMemberChanged.header,
         UpdateGroupMembersBecameAsync.header,
         UpdateGroupMembersUpdated.header,
         UpdateGroupMemberDiff.header,
         UpdateGroupMembersCountChanged.header,
-        UpdateGroupMemberAdminChanged.header
+        UpdateGroupMemberAdminChanged.header,
+        UpdateGroupShortNameChanged.header,
+        UpdateGroupFullPermissionsChanged.header,
+        UpdateGroupPermissionsChanged.header,
+        UpdateChatDropCache.header
       )
       if (deliveryTag == GroupV2)
         emptyUpdate

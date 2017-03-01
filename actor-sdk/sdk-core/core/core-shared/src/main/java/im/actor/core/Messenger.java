@@ -21,11 +21,14 @@ import im.actor.core.entity.AuthRes;
 import im.actor.core.entity.AuthStartRes;
 import im.actor.core.entity.FileReference;
 import im.actor.core.entity.Group;
+import im.actor.core.entity.GroupMembersSlice;
+import im.actor.core.entity.GroupPermissions;
 import im.actor.core.entity.MentionFilterResult;
 import im.actor.core.entity.MessageSearchEntity;
 import im.actor.core.entity.Peer;
 import im.actor.core.entity.PeerSearchEntity;
 import im.actor.core.entity.PeerSearchType;
+import im.actor.core.entity.SearchResult;
 import im.actor.core.entity.Sex;
 import im.actor.core.entity.User;
 import im.actor.core.entity.WebActionDescriptor;
@@ -67,7 +70,9 @@ import im.actor.core.viewmodel.UploadFileVMCallback;
 import im.actor.core.viewmodel.UserVM;
 import im.actor.runtime.actors.ActorSystem;
 import im.actor.runtime.actors.messages.Void;
+import im.actor.runtime.mtproto.ConnectionEndpointArray;
 import im.actor.runtime.mvvm.MVVMCollection;
+import im.actor.runtime.mvvm.SearchValueModel;
 import im.actor.runtime.mvvm.ValueModel;
 import im.actor.runtime.promise.Promise;
 import im.actor.runtime.storage.PreferencesStorage;
@@ -217,6 +222,20 @@ public class Messenger {
     @ObjectiveCName("doCompleteAuth:")
     public Promise<Boolean> doCompleteAuth(AuthRes authRes) {
         return modules.getAuthModule().doCompleteAuth(authRes);
+    }
+
+    /**
+     * Change endpoint
+     *
+     * @param endpoint endpoint to change to, null for reset to default
+     * @throws ConnectionEndpointArray.UnknownSchemeException
+     */
+    public void changeEndpoint(String endpoint) throws ConnectionEndpointArray.UnknownSchemeException {
+        if (endpoint != null && !endpoint.isEmpty()) {
+            modules.getApiModule().changeEndpoint(endpoint);
+        } else {
+            modules.getApiModule().resetToDefaultEndpoints();
+        }
     }
 
     /**
@@ -394,7 +413,7 @@ public class Messenger {
     @NotNull
     @ObjectiveCName("getAppState")
     public AppStateVM getAppState() {
-        return modules.getAppStateModule().getAppStateVM();
+        return modules.getConductor().getAppStateVM();
     }
 
     /**
@@ -405,7 +424,7 @@ public class Messenger {
     @NotNull
     @ObjectiveCName("getGlobalState")
     public GlobalStateVM getGlobalState() {
-        return modules.getAppStateModule().getGlobalStateVM();
+        return modules.getConductor().getGlobalStateVM();
     }
 
     /**
@@ -671,12 +690,13 @@ public class Messenger {
     /**
      * MUST be called when external push received
      *
-     * @param seq sequence number of update
+     * @param seq    sequence number of update
+     * @param authId auth id
      */
-    @ObjectiveCName("onPushReceivedWithSeq:")
-    public void onPushReceived(int seq) {
+    @ObjectiveCName("onPushReceivedWithSeq:withAuthId:")
+    public void onPushReceived(int seq, long authId) {
         if (modules.getUpdatesModule() != null) {
-            modules.getUpdatesModule().onPushReceived(seq);
+            modules.getUpdatesModule().onPushReceived(seq, authId);
         }
     }
 
@@ -1100,7 +1120,18 @@ public class Messenger {
     @ObjectiveCName("loadLastMessageDate:")
     @Deprecated
     public long loadLastMessageDate(Peer peer) {
-        return getConversationVM(peer).getLastMessageDate();
+        return getConversationVM(peer).getLastReadMessageDate();
+    }
+
+    /**
+     * Finding public by id
+     *
+     * @param gid group id
+     * @return found peer promise
+     */
+    @ObjectiveCName("findPublicGroupByIdWithGid:")
+    public Promise<Peer> findPublicGroupById(int gid) {
+        return modules.getSearchModule().findPublicGroupById(gid);
     }
 
     /**
@@ -1124,6 +1155,19 @@ public class Messenger {
     @ObjectiveCName("findPeersWithType:")
     public Command<List<PeerSearchEntity>> findPeers(PeerSearchType type) {
         return callback -> modules.getSearchModule().findPeers(type)
+                .then(v -> callback.onResult(v))
+                .failure(e -> callback.onError(e));
+    }
+
+    /**
+     * Finding peers by text query
+     *
+     * @param query text query
+     * @return found peers
+     */
+    @ObjectiveCName("findPeersWithQuery:")
+    public Command<List<PeerSearchEntity>> findPeers(String query) {
+        return callback -> modules.getSearchModule().findPeers(query)
                 .then(v -> callback.onResult(v))
                 .failure(e -> callback.onError(e));
     }
@@ -1179,6 +1223,16 @@ public class Messenger {
         return callback -> modules.getSearchModule().findAllPhotos(peer)
                 .then(v -> callback.onResult(v))
                 .failure(e -> callback.onError(e));
+    }
+
+    /**
+     * Building global search model
+     *
+     * @return search model
+     */
+    @ObjectiveCName("buildGlobalSearchModel")
+    public SearchValueModel<SearchResult> buildGlobalSearchModel() {
+        return modules.getSearchModule().buildSearchModel();
     }
 
     //////////////////////////////////////
@@ -1386,14 +1440,12 @@ public class Messenger {
      *
      * @param gid   group's id
      * @param title new group title
-     * @return Command for execution
+     * @return Promise for void
      */
-    @Nullable
-    @ObjectiveCName("editGroupTitleCommandWithGid:withTitle:")
-    public Command<Void> editGroupTitle(final int gid, final String title) {
-        return callback -> modules.getGroupsModule().editTitle(gid, title)
-                .then(v -> callback.onResult(v))
-                .failure(e -> callback.onError(e));
+    @NotNull
+    @ObjectiveCName("editGroupTitleWithGid:withTitle:")
+    public Promise<Void> editGroupTitle(final int gid, final String title) {
+        return modules.getGroupsModule().editTitle(gid, title);
     }
 
     /**
@@ -1416,14 +1468,50 @@ public class Messenger {
      *
      * @param gid   group's id
      * @param about new group about
-     * @return Command for execution
+     * @return Promise for void
      */
     @NotNull
-    @ObjectiveCName("editGroupAboutCommandWithGid:withAbout:")
-    public Command<Void> editGroupAbout(final int gid, final String about) {
-        return callback -> modules.getGroupsModule().editAbout(gid, about)
-                .then(v -> callback.onResult(v))
-                .failure(e -> callback.onError(e));
+    @ObjectiveCName("editGroupAboutWithGid:withAbout:")
+    public Promise<Void> editGroupAbout(int gid, String about) {
+        return modules.getGroupsModule().editAbout(gid, about);
+    }
+
+    /**
+     * Edit group's short name
+     *
+     * @param gid       group's id
+     * @param shortName new group short name
+     * @return Promise for void
+     */
+    @NotNull
+    @ObjectiveCName("editGroupShortNameWithGid:withAbout:")
+    public Promise<Void> editGroupShortName(int gid, String shortName) {
+        return modules.getGroupsModule().editShortName(gid, shortName);
+    }
+
+    /**
+     * Load Group's permissions
+     *
+     * @param gid group's id
+     * @return promise of permissions
+     */
+    @NotNull
+    @ObjectiveCName("loadGroupPermissionsWithGid:")
+    public Promise<GroupPermissions> loadGroupPermissions(int gid) {
+        return modules.getGroupsModule().loadAdminSettings(gid);
+    }
+
+    /**
+     * Save Group's permissions
+     *
+     * @param gid           group's id
+     * @param adminSettings settings
+     * @return promise of void
+     */
+    @NotNull
+    @ObjectiveCName("saveGroupPermissionsWithGid:withSettings:")
+    public Promise<Void> saveGroupPermissions(int gid, GroupPermissions adminSettings) {
+        return modules.getGroupsModule().saveAdminSettings(gid, adminSettings);
     }
 
     /**
@@ -1458,29 +1546,73 @@ public class Messenger {
      * @param title            group title
      * @param avatarDescriptor descriptor of group avatar (can be null if not set)
      * @param uids             member's ids
-     * @return Command for execution
+     * @return Promise of group id
      */
-    @Nullable
-    @ObjectiveCName("createGroupCommandWithTitle:withAvatar:withUids:")
-    public Command<Integer> createGroup(String title, String avatarDescriptor, int[] uids) {
-        return callback -> modules.getGroupsModule().createGroup(title, avatarDescriptor, uids)
-                .then(integer -> callback.onResult(integer))
-                .failure(e -> callback.onError(e));
+    @NotNull
+    @ObjectiveCName("createGroupWithTitle:withAvatar:withUids:")
+    public Promise<Integer> createGroup(String title, String avatarDescriptor, int[] uids) {
+        return modules.getGroupsModule().createGroup(title, avatarDescriptor, uids);
     }
 
+    /**
+     * Create channel
+     *
+     * @param title            channel title
+     * @param avatarDescriptor descriptor of channel avatar (can be null if not set)
+     * @return Promise of channel id
+     */
+    @NotNull
+    @ObjectiveCName("createChannelWithTitle:withAvatar:")
+    public Promise<Integer> createChannel(String title, String avatarDescriptor) {
+        return modules.getGroupsModule().createChannel(title, avatarDescriptor);
+    }
 
     /**
      * Leave group
      *
      * @param gid group's id
-     * @return Command for execution
+     * @return Promise of Void
      */
-    @Nullable
-    @ObjectiveCName("leaveGroupCommandWithGid:")
-    public Command<Void> leaveGroup(final int gid) {
-        return callback -> modules.getGroupsModule().leaveGroup(gid)
-                .then(v -> callback.onResult(v))
-                .failure(e -> callback.onError(e));
+    @NotNull
+    @ObjectiveCName("leaveGroupWithGid:")
+    public Promise<Void> leaveGroup(final int gid) {
+        return modules.getGroupsModule().leaveGroup(gid);
+    }
+
+    /**
+     * Leave and delete group
+     *
+     * @param gid group's id
+     * @return Promise of Void
+     */
+    @NotNull
+    @ObjectiveCName("leaveAndDeleteGroupWithGid:")
+    public Promise<Void> leaveAndDeleteGroup(int gid) {
+        return modules.getGroupsModule().leaveAndDeleteGroup(gid);
+    }
+
+    /**
+     * Delete Group
+     *
+     * @param gid group's id
+     * @return Promise of void
+     */
+    @NotNull
+    @ObjectiveCName("deleteGroupWithGid:")
+    public Promise<Void> deleteGroup(int gid) {
+        return modules.getGroupsModule().deleteGroup(gid);
+    }
+
+    /**
+     * Share Group History
+     *
+     * @param gid group's id
+     * @return Promise of void
+     */
+    @NotNull
+    @ObjectiveCName("shareHistoryWithGid:")
+    public Promise<Void> shareHistory(int gid) {
+        return modules.getGroupsModule().shareHistory(gid);
     }
 
     /**
@@ -1490,12 +1622,25 @@ public class Messenger {
      * @param uid user's id
      * @return Command for execution
      */
-    @Nullable
+    @NotNull
     @ObjectiveCName("inviteMemberCommandWithGid:withUid:")
     public Command<Void> inviteMember(int gid, int uid) {
         return callback -> modules.getGroupsModule().addMember(gid, uid)
                 .then(v -> callback.onResult(v))
                 .failure(e -> callback.onError(e));
+    }
+
+    /**
+     * Adding member to group
+     *
+     * @param gid group's id
+     * @param uid user's id
+     * @return promise of adding member to group
+     */
+    @NotNull
+    @ObjectiveCName("inviteMemberPromiseWithGid:withUid:")
+    public Promise<Void> inviteMemberPromise(int gid, int uid) {
+        return modules.getGroupsModule().addMember(gid, uid);
     }
 
     /**
@@ -1505,12 +1650,25 @@ public class Messenger {
      * @param uid user's id
      * @return Command for execution
      */
-    @Nullable
+    @NotNull
     @ObjectiveCName("kickMemberCommandWithGid:withUid:")
     public Command<Void> kickMember(int gid, int uid) {
         return callback -> modules.getGroupsModule().kickMember(gid, uid)
                 .then(v -> callback.onResult(v))
                 .failure(e -> callback.onError(e));
+    }
+
+    /**
+     * Load async members
+     *
+     * @param gid   group id
+     * @param limit limit of loading
+     * @param next  optional cursor of next
+     * @return promise of members slice
+     */
+    @ObjectiveCName("loadMembersWithGid:withLimit:withNext:")
+    public Promise<GroupMembersSlice> loadMembers(int gid, int limit, byte[] next) {
+        return modules.getGroupsModule().loadMembers(gid, limit, next);
     }
 
     /**
@@ -1520,7 +1678,7 @@ public class Messenger {
      * @param uid user's id
      * @return Command for execution
      */
-    @Nullable
+    @NotNull
     @ObjectiveCName("makeAdminCommandWithGid:withUid:")
     public Command<Void> makeAdmin(final int gid, final int uid) {
         return callback -> modules.getGroupsModule().makeAdmin(gid, uid)
@@ -1529,12 +1687,40 @@ public class Messenger {
     }
 
     /**
+     * Revoke member admin rights of group
+     *
+     * @param gid group's id
+     * @param uid user's id
+     * @return Command for execution
+     */
+    @NotNull
+    @ObjectiveCName("revokeAdminCommandWithGid:withUid:")
+    public Command<Void> revokeAdmin(final int gid, final int uid) {
+        return callback -> modules.getGroupsModule().revokeAdmin(gid, uid)
+                .then(v -> callback.onResult(v))
+                .failure(e -> callback.onError(e));
+    }
+
+    /**
+     * Transfer ownership of group
+     *
+     * @param gid group's id
+     * @param uid user's id
+     * @return Promise of void
+     */
+    @NotNull
+    @ObjectiveCName("transferOwnershipWithGid:withUid:")
+    public Promise<Void> transferOwnership(int gid, int uid) {
+        return modules.getGroupsModule().transferOwnership(gid, uid);
+    }
+
+    /**
      * Request invite link for group
      *
      * @param gid group's id
      * @return Command for execution
      */
-    @Nullable
+    @NotNull
     @ObjectiveCName("requestInviteLinkCommandWithGid:")
     public Command<String> requestInviteLink(int gid) {
         return callback -> modules.getGroupsModule().requestInviteLink(gid)
@@ -1548,7 +1734,7 @@ public class Messenger {
      * @param gid group's id
      * @return Command for execution
      */
-    @Nullable
+    @NotNull
     @ObjectiveCName("requestRevokeLinkCommandWithGid:")
     public Command<String> revokeInviteLink(int gid) {
         return callback -> modules.getGroupsModule().requestRevokeLink(gid)
@@ -1562,7 +1748,7 @@ public class Messenger {
      * @param token invite token
      * @return Command for execution
      */
-    @Nullable
+    @NotNull
     @ObjectiveCName("joinGroupViaLinkCommandWithToken:")
     public Command<Integer> joinGroupViaToken(String token) {
         return callback -> modules.getGroupsModule().joinGroupByToken(token)
@@ -1571,12 +1757,24 @@ public class Messenger {
     }
 
     /**
+     * Join group
+     *
+     * @param gid group's id
+     * @return Promise of Void
+     */
+    @NotNull
+    @ObjectiveCName("joinGroupWithGid:")
+    public Promise<Void> joinGroup(int gid) {
+        return modules.getGroupsModule().joinGroup(gid);
+    }
+
+    /**
      * Request integration token for group
      *
      * @param gid group's id
      * @return Command for execution
      */
-    @Nullable
+    @NotNull
     @ObjectiveCName("requestIntegrationTokenCommandWithGid:")
     public Command<String> requestIntegrationToken(int gid) {
         return callback -> modules.getGroupsModule().requestIntegrationToken(gid)
@@ -2239,6 +2437,106 @@ public class Messenger {
     @ObjectiveCName("changeAnimationAutoPlayEnabled:")
     public void changeAnimationAutoPlayEnabled(boolean val) {
         modules.getSettingsModule().setAnimationAutoPlayEnabled(val);
+    }
+
+    /**
+     * Is animation content auto download enabled
+     *
+     * @return is animation auto download enabled
+     */
+    @ObjectiveCName("isAnimationAutoDownloadEnabled")
+    public boolean isAnimationAutoDownloadEnabled() {
+        return modules.getSettingsModule().isAnimationAutoDownloadEnabled();
+    }
+
+    /**
+     * Change animation auto download enabled
+     *
+     * @param val is auto download enabled
+     */
+    @ObjectiveCName("changeAnimationAutoDownloadEnabled:")
+    public void changeAnimationAutoDownloadEnabled(boolean val) {
+        modules.getSettingsModule().setAnimationAutoDownloadEnabled(val);
+    }
+
+    /**
+     * Is image content auto download enabled
+     *
+     * @return is image auto download enabled
+     */
+    @ObjectiveCName("isImageAutoDownloadEnabled")
+    public boolean isImageAutoDownloadEnabled() {
+        return modules.getSettingsModule().isImageAutoDownloadEnabled();
+    }
+
+    /**
+     * Change image auto download enabled
+     *
+     * @param val is auto download enabled
+     */
+    @ObjectiveCName("changeImageAutoDownloadEnabled:")
+    public void changeImageAutoDownloadEnabled(boolean val) {
+        modules.getSettingsModule().setImageAutoDownloadEnabled(val);
+    }
+
+    /**
+     * Is video content auto download enabled
+     *
+     * @return is video auto download enabled
+     */
+    @ObjectiveCName("isVideoAutoDownloadEnabled")
+    public boolean isVideoAutoDownloadEnabled() {
+        return modules.getSettingsModule().isVideoAutoDownloadEnabled();
+    }
+
+    /**
+     * Change video auto download enabled
+     *
+     * @param val is auto download enabled
+     */
+    @ObjectiveCName("changeVideoAutoDownloadEnabled:")
+    public void changeVideoAutoDownloadEnabled(boolean val) {
+        modules.getSettingsModule().setVideoAutoDownloadEnabled(val);
+    }
+
+    /**
+     * Is audio content auto download enabled
+     *
+     * @return is audio auto download enabled
+     */
+    @ObjectiveCName("isAudioAutoDownloadEnabled")
+    public boolean isAudioAutoDownloadEnabled() {
+        return modules.getSettingsModule().isAudioAutoDownloadEnabled();
+    }
+
+    /**
+     * Change audio auto download enabled
+     *
+     * @param val is auto download enabled
+     */
+    @ObjectiveCName("changeAudioAutoDownloadEnabled:")
+    public void changeAudioAutoDownloadEnabled(boolean val) {
+        modules.getSettingsModule().setAudioAutoDownloadEnabled(val);
+    }
+
+    /**
+     * Is doc content auto download enabled
+     *
+     * @return is doc auto download enabled
+     */
+    @ObjectiveCName("isDocAutoDownloadEnabled")
+    public boolean isDocAutoDownloadEnabled() {
+        return modules.getSettingsModule().isDocAutoDownloadEnabled();
+    }
+
+    /**
+     * Change doc auto download enabled
+     *
+     * @param val is auto download enabled
+     */
+    @ObjectiveCName("changeDocAutoDownloadEnabled:")
+    public void changeDocAutoDownloadEnabled(boolean val) {
+        modules.getSettingsModule().setDocAutoDownloadEnabled(val);
     }
 
 
